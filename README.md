@@ -41,37 +41,59 @@ The knowledge base contains **five predefined IF–THEN rules** with different p
 
 Community service hours and current semester are collected but do not affect scholarship decisions under the five original rules.
 
-## Key Features
 
-- Five predefined scholarship rules with priorities and IF–THEN conditions.
-- Six applicant input fields with example applicant profiles.
-- Four possible recommendations: full scholarship, partial scholarship, manual review, and rejection.
-- Priority-based conflict resolution when multiple rules match.
-- Detailed explanations showing matched rules, conditions, and decision reasons.
-- Audit table displaying the evaluation status of every rule.
-- Editable JSON knowledge base with validation and reset functionality.
-- Batch evaluation using CSV uploads with downloadable results.
-- Summary of batch scholarship decisions using tables and a bar chart.
-- What-if analysis showing how different CGPA values affect scholarship recommendations.
-- "How to use" guide and explanation of the rule-based inference process.
+## Application Features
 
-## Screenshots
+### 1. Applicant Facts
 
-**Application overview**
+Enter the applicant's six facts in the sidebar: CGPA, monthly family income, co-curricular score, community service hours, current semester, and disciplinary actions. You can also select an example applicant to automatically fill in the values. The applicant information is displayed as summary cards in the Evaluation tab.
 
-![App overview](image/app_overview.png)
+Click **Evaluate applicant** to run the scholarship rules.
 
-**Scholarship recommendation and rule evaluation**
+![Applicant facts](image/app_overview.png)
 
-![Scholarship results](image/scholarship_results.png)
+### 2. Scholarship Decision and Matched Rules
 
-**JSON rule configuration**
+The system displays the scholarship recommendation in a colour-coded banner: green for `AWARD_FULL`, blue for `AWARD_PARTIAL`, yellow for `REVIEW`, and red for `REJECT`.
 
-![JSON editor](image/json_editor.png)
+The result includes the reason, winning rule, and its priority. All matching rules are displayed in priority order. If multiple rules match, the rule with the highest priority determines the recommendation.
 
-**Batch evaluation**
+![Scholarship decision](image/scholarship_results.png)
 
-![Batch evaluation](image/batch_evaluation.png)
+### 3. Rule Audit and Explanation
+
+The rule audit table shows the evaluation of all five scholarship rules. Each rule is marked as **Fired** or **Not fired**, together with its priority and the number of conditions satisfied.
+
+For matched rules, you can expand the rule to view each condition, the applicant's actual value, and whether the condition passed. This makes the scholarship recommendation transparent and explainable.
+
+![Rule audit](image/rule_audit.png)
+
+### 4. CGPA What-if Analysis
+
+The what-if analysis evaluates how the scholarship recommendation changes when the applicant's CGPA is adjusted while all other facts remain unchanged.
+
+The results are displayed in a table showing different CGPA values, scholarship decisions, and the corresponding deciding rules.
+
+![CGPA what-if analysis](image/what_if_analysis.png)
+
+### 5. Editable Scholarship Rules
+
+The **Rules (JSON editor)** tab contains the five predefined scholarship rules from the lab requirement. Each rule includes a name, priority, conditions, and action.
+
+Users can modify the rule configuration without changing the Python source code. The system validates the JSON structure and displays errors if the configuration is invalid. Evaluation is disabled until the errors are corrected.
+
+A **Reset rules to case-study defaults** button restores the original rules.
+
+![JSON rule editor](image/json_editor.png)
+
+### 6. How It Works
+
+The **How it works** dropdown explains the rule-based inference process, including fact collection, IF–THEN rule matching, priority-based conflict resolution, scholarship decisions, and default handling.
+
+The explanation is collapsed by default to keep the interface clean.
+
+![How it works](image/how_it_works.png)
+
 
 ## How to Run
 
@@ -81,16 +103,6 @@ streamlit run SD24048_Lab3.py
 ```
 
 The app usually opens at http://localhost:8501.
-
-## How to Use the App
-
-1. Select an example applicant or enter the six applicant facts in the sidebar.
-2. Click **Evaluate applicant** to evaluate scholarship eligibility.
-3. Read the scholarship recommendation, winning rule, and explanation.
-4. Review the matched rules and audit table to understand the decision.
-5. Open the **Rules (JSON editor)** tab to modify the rules or reset the original configuration.
-6. Use **Batch evaluation** to upload a CSV file and evaluate multiple applicants.
-7. Review the what-if analysis to observe how changing CGPA affects the scholarship recommendation.
 
 ## How the Rule-Based System Works
 
