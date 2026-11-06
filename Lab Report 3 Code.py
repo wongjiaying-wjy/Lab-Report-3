@@ -269,8 +269,6 @@ with tab_eval:
             sweep.append({"CGPA": g, "Decision": result["decision"], "Rule": deciding_rule["name"] if deciding_rule else "Fallback"})
         st.dataframe(pd.DataFrame(sweep), hide_index=True, use_container_width=True)
         st.caption("All other applicant facts remain unchanged during the what-if analysis.")
-    else:
-        st.info("Enter applicant facts in the sidebar and click **Evaluate applicant**.")
 
 with tab_rules:
     st.subheader("Rules (JSON editor)")
@@ -288,5 +286,3 @@ with tab_rules:
     else:
         for error in rule_errors:
             st.error(error)
-
-st.caption("University lab demonstration only. Final scholarship decisions rest with the scholarship committee.")
