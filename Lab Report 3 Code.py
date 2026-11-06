@@ -1,393 +1,373 @@
 import io
 import json
+import math
 import operator
-from typing import Any, Dict, List, Tuple
- 
+from typing import Any
+
 import pandas as pd
 import streamlit as st
- 
-# ======================================================================
-# 1) Knowledge base: rules (exactly as given in the case study)
-# ======================================================================
-DEFAULT_RULES_JSON = """[
+
+st.set_page_config(page_title="Scholarship Advisory System", page_icon="🎓", layout="wide")
+
+DEFAULT_RULES_JSON = '''[
   {
     "name": "Top merit candidate",
     "priority": 100,
-    "conditions": [
-      ["cgpa", ">=", 3.7],
-      ["co_curricular_score", ">=", 80],
-      ["family_income", "<=", 8000],
-      ["disciplinary_actions", "==", 0]
-    ],
-    "action": {
-      "decision": "AWARD_FULL",
-      "reason": "Excellent academic & co-curricular performance, with acceptable need"
-    }
+    "conditions": [["cgpa", ">=", 3.7], ["co_curricular_score", ">=", 80], ["family_income", "<=", 8000], ["disciplinary_actions", "==", 0]],
+    "action": {"decision": "AWARD_FULL", "reason": "Excellent academic & co-curricular performance, with acceptable need"}
   },
   {
     "name": "Good candidate - partial scholarship",
     "priority": 80,
-    "conditions": [
-      ["cgpa", ">=", 3.3],
-      ["co_curricular_score", ">=", 60],
-      ["family_income", "<=", 12000],
-      ["disciplinary_actions", "<=", 1]
-    ],
-    "action": {
-      "decision": "AWARD_PARTIAL",
-      "reason": "Good academic & involvement record with moderate need"
-    }
+    "conditions": [["cgpa", ">=", 3.3], ["co_curricular_score", ">=", 60], ["family_income", "<=", 12000], ["disciplinary_actions", "<=", 1]],
+    "action": {"decision": "AWARD_PARTIAL", "reason": "Good academic & involvement record with moderate need"}
   },
   {
     "name": "Need-based review",
     "priority": 70,
-    "conditions": [
-      ["cgpa", ">=", 2.5],
-      ["family_income", "<=", 4000]
-    ],
-    "action": {
-      "decision": "REVIEW",
-      "reason": "High need but borderline academic score"
-    }
+    "conditions": [["cgpa", ">=", 2.5], ["family_income", "<=", 4000]],
+    "action": {"decision": "REVIEW", "reason": "High need but borderline academic score"}
   },
   {
     "name": "Low CGPA – not eligible",
     "priority": 95,
-    "conditions": [
-      ["cgpa", "<", 2.5]
-    ],
-    "action": {
-      "decision": "REJECT",
-      "reason": "CGPA below minimum scholarship requirement"
-    }
+    "conditions": [["cgpa", "<", 2.5]],
+    "action": {"decision": "REJECT", "reason": "CGPA below minimum scholarship requirement"}
   },
   {
     "name": "Serious disciplinary record",
     "priority": 90,
-    "conditions": [
-      ["disciplinary_actions", ">=", 2]
-    ],
-    "action": {
-      "decision": "REJECT",
-      "reason": "Too many disciplinary records"
-    }
+    "conditions": [["disciplinary_actions", ">=", 2]],
+    "action": {"decision": "REJECT", "reason": "Too many disciplinary records"}
   }
-]"""
-DEFAULT_RULES: List[Dict[str, Any]] = json.loads(DEFAULT_RULES_JSON)
- 
-# ======================================================================
-# 2) Rule engine
-# ======================================================================
+]'''
+DEFAULT_RULES = json.loads(DEFAULT_RULES_JSON)
+
 OPS = {
-    "==": operator.eq,
-    "!=": operator.ne,
-    ">": operator.gt,
-    ">=": operator.ge,
-    "<": operator.lt,
-    "<=": operator.le,
-    "in": lambda a, b: a in b,
-    "not_in": lambda a, b: a not in b,
+    "==": operator.eq, "!=": operator.ne,
+    ">": operator.gt, ">=": operator.ge,
+    "<": operator.lt, "<=": operator.le,
+    "in": lambda actual, choices: actual in choices,
+    "not_in": lambda actual, choices: actual not in choices,
 }
- 
-FACT_FIELDS = ["cgpa", "co_curricular_score", "family_income", "disciplinary_actions"]
- 
-DECISION_STYLE = {          # decision -> (icon, colour function name)
-    "AWARD_FULL": ("🏆", "success"),
-    "AWARD_PARTIAL": ("🎓", "info"),
-    "REVIEW": ("🔎", "warning"),
-    "REJECT": ("⛔", "error"),
+FACT_FIELDS = [
+    "cgpa", "co_curricular_score", "family_income",
+    "community_service_hours", "semester", "disciplinary_actions"
+]
+INTEGER_FIELDS = {
+    "co_curricular_score", "community_service_hours", "semester", "disciplinary_actions"
 }
- 
- 
-def check_condition(facts: Dict[str, Any], cond: List[Any]) -> Tuple[bool, Any]:
-    """Evaluate [field, op, value]. Returns (passed, actual_value)."""
-    if not isinstance(cond, list) or len(cond) != 3:
-        return False, None
-    field, op, value = cond
-    if field not in facts or op not in OPS:
-        return False, None
-    try:
-        return bool(OPS[op](facts[field], value)), facts[field]
-    except Exception:
-        return False, facts[field]
- 
- 
-def rule_matches(facts: Dict[str, Any], rule: Dict[str, Any]) -> bool:
-    """All conditions must be true (AND)."""
-    return all(check_condition(facts, c)[0] for c in rule.get("conditions", []))
- 
- 
-def run_rules(facts: Dict[str, Any], rules: List[Dict[str, Any]]):
-    """Returns (best_action, winning_rule, fired_rules_sorted_by_priority)."""
-    fired = [r for r in rules if rule_matches(facts, r)]
-    if not fired:
-        return {"decision": "REVIEW", "reason": "No rule matched - refer to the committee"}, None, []
-    fired = sorted(fired, key=lambda r: r.get("priority", 0), reverse=True)  # stable: ties keep file order
-    return fired[0].get("action", {"decision": "REVIEW", "reason": "No action"}), fired[0], fired
- 
- 
-def validate_rules(rules: Any) -> List[str]:
-    """Return a list of human-readable problems (empty list = rules are fine)."""
-    if not isinstance(rules, list):
-        return ["Rules must be a JSON array [ ... ]."]
-    problems = []
-    for i, r in enumerate(rules, start=1):
+LIMITS = {
+    "cgpa": (0, 4), "co_curricular_score": (0, 100),
+    "family_income": (0, 100000), "community_service_hours": (0, 10000),
+    "semester": (1, 20), "disciplinary_actions": (0, 20)
+}
+DECISIONS = {
+    "AWARD_FULL": ("🏆", "success", "Full scholarship"),
+    "AWARD_PARTIAL": ("🎓", "info", "Partial scholarship"),
+    "REVIEW": ("🔎", "warning", "Manual review"),
+    "REJECT": ("⛔", "error", "Not eligible"),
+}
+
+
+def validate_rules(rules: Any) -> list[str]:
+    """Return descriptive errors. An empty list means rules are valid."""
+    if not isinstance(rules, list) or not rules:
+        return ["Rules must be a non-empty JSON array."]
+    errors = []
+    seen_names = set()
+    for i, rule in enumerate(rules, 1):
         label = f"Rule {i}"
-        if not isinstance(r, dict):
-            problems.append(f"{label}: must be an object.")
+        if not isinstance(rule, dict):
+            errors.append(f"{label}: expected a JSON object.")
             continue
-        label = f"Rule {i} ({r.get('name', 'unnamed')})"
-        if "conditions" not in r or not isinstance(r["conditions"], list):
-            problems.append(f"{label}: needs a 'conditions' list.")
+        name = rule.get("name")
+        if not isinstance(name, str) or not name.strip():
+            errors.append(f"{label}: name must be non-empty text.")
+        elif name in seen_names:
+            errors.append(f"{label}: duplicate name '{name}'.")
         else:
-            for c in r["conditions"]:
-                if not (isinstance(c, list) and len(c) == 3):
-                    problems.append(f"{label}: condition {c} must look like [field, operator, value].")
+            seen_names.add(name)
+        if type(rule.get("priority")) is not int:
+            errors.append(f"{label}: priority must be an integer.")
+        conditions = rule.get("conditions")
+        if not isinstance(conditions, list) or not conditions:
+            errors.append(f"{label}: conditions must be a non-empty list.")
+        else:
+            for j, cond in enumerate(conditions, 1):
+                where = f"{label}, condition {j}"
+                if not isinstance(cond, list) or len(cond) != 3:
+                    errors.append(f"{where}: use [field, operator, value].")
                     continue
-                if c[0] not in FACT_FIELDS:
-                    problems.append(f"{label}: unknown field '{c[0]}' (use {', '.join(FACT_FIELDS)}).")
-                if c[1] not in OPS:
-                    problems.append(f"{label}: unknown operator '{c[1]}' (use {', '.join(OPS)}).")
-        if not isinstance(r.get("action"), dict) or "decision" not in r.get("action", {}):
-            problems.append(f"{label}: needs an 'action' with a 'decision'.")
-    return problems
- 
- 
-def explain_rule(facts: Dict[str, Any], rule: Dict[str, Any]) -> pd.DataFrame:
-    """Condition-by-condition table for one rule."""
-    rows = []
-    for c in rule.get("conditions", []):
-        ok, actual = check_condition(facts, c)
-        field, op, value = (c + [None, None, None])[:3] if isinstance(c, list) else (str(c), "", "")
-        rows.append({"Condition": f"{field} {op} {value}", "Applicant value": actual,
-                     "Result": "✅ pass" if ok else "❌ fail"})
-    return pd.DataFrame(rows)
- 
- 
-def show_decision(decision: str, reason: str):
-    icon, style = DECISION_STYLE.get(decision, ("ℹ️", "warning"))
-    getattr(st, style)(f"{icon} **{decision.replace('_', ' ')}** — {reason}")
- 
- 
-# ======================================================================
-# 3) Streamlit UI
-# ======================================================================
-st.set_page_config(page_title="Scholarship Advisory System", page_icon="🎓", layout="wide")
- 
+                field, op, threshold = cond
+                if not isinstance(field, str) or field not in FACT_FIELDS:
+                    errors.append(f"{where}: unknown field {field!r}.")
+                if not isinstance(op, str) or op not in OPS:
+                    errors.append(f"{where}: unsupported operator {op!r}.")
+                if isinstance(op, str) and op in ("in", "not_in"):
+                    if not isinstance(threshold, list) or not threshold or any(
+                        type(x) not in (int, float) or not math.isfinite(x)
+                        for x in threshold
+                    ):
+                        errors.append(f"{where}: membership operator needs a non-empty numeric list.")
+                elif type(threshold) not in (int, float) or not math.isfinite(threshold):
+                    errors.append(f"{where}: threshold must be a finite number.")
+        action = rule.get("action")
+        if not isinstance(action, dict):
+            errors.append(f"{label}: action must be an object.")
+        else:
+            decision = action.get("decision")
+            if not isinstance(decision, str) or decision not in DECISIONS:
+                errors.append(f"{label}: invalid decision.")
+            reason = action.get("reason")
+            if not isinstance(reason, str) or not reason.strip():
+                errors.append(f"{label}: reason must be non-empty text.")
+    return errors
+
+
+def check_condition(facts: dict, cond: list) -> bool:
+    field, op, threshold = cond
+    return bool(OPS[op](facts[field], threshold))
+
+
+def run_rules(facts: dict, rules: list):
+    """Return action, winning rule, matching rules, and complete audit."""
+    fired = []
+    audit = []
+    for rule in rules:
+        checks = [check_condition(facts, c) for c in rule["conditions"]]
+        matched = all(checks)
+        audit.append({
+            "Rule": rule["name"], "Priority": rule["priority"],
+            "Decision if matched": rule["action"]["decision"],
+            "Conditions met": f"{sum(checks)}/{len(checks)}",
+            "Status": "✅ Fired" if matched else "❌ Not fired",
+        })
+        if matched:
+            fired.append(rule)
+    # Python's sort is stable, preserving JSON order when priorities tie.
+    fired.sort(key=lambda r: r["priority"], reverse=True)
+    if fired:
+        return fired[0]["action"], fired[0], fired, audit
+    return {"decision": "REVIEW", "reason": "No rule matched; refer to the scholarship committee."}, None, [], audit
+
+
+def explain_rule(facts: dict, rule: dict) -> pd.DataFrame:
+    return pd.DataFrame([
+        {
+            "Condition": f"{field} {op} {value}",
+            "Applicant value": facts[field],
+            "Result": "✅ Pass" if check_condition(facts, [field, op, value]) else "❌ Fail"
+        }
+        for field, op, value in rule["conditions"]
+    ])
+
+
+def validate_batch(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
+    """Check required columns, missing values, ranges, and integer counts."""
+    missing = [field for field in FACT_FIELDS if field not in df.columns]
+    if missing:
+        return df, ["Missing columns: " + ", ".join(missing)]
+    if df.empty:
+        return df, ["CSV must contain at least one applicant."]
+    result = df.copy()
+    errors = []
+    for field in FACT_FIELDS:
+        result[field] = pd.to_numeric(result[field], errors="coerce")
+        minimum, maximum = LIMITS[field]
+        invalid = result[field].isna() | ~result[field].map(math.isfinite)
+        invalid |= (result[field] < minimum) | (result[field] > maximum)
+        if field in INTEGER_FIELDS:
+            invalid |= result[field].notna() & (result[field] % 1 != 0)
+        if invalid.any():
+            errors.append(f"{field}: invalid value(s) in CSV row(s) " + ", ".join(str(i + 2) for i in result.index[invalid]))
+    return result, errors
+
+
 PRESETS = {
     "Custom (enter your own)": None,
-    "Top merit student": dict(cgpa=3.85, co=90, income=6000, disc=0),
-    "Good student, moderate need": dict(cgpa=3.5, co=70, income=10000, disc=1),
-    "High need, borderline CGPA": dict(cgpa=2.8, co=40, income=3000, disc=0),
-    "Low CGPA": dict(cgpa=2.2, co=85, income=3000, disc=0),
-    "Serious disciplinary record": dict(cgpa=3.9, co=95, income=5000, disc=2),
-    "No rule matches": dict(cgpa=3.0, co=50, income=10000, disc=0),
+    "Top merit student": (3.85, 90, 6000, 30, 4, 0),
+    "Good student, moderate need": (3.50, 70, 10000, 20, 4, 1),
+    "High need, borderline CGPA": (2.80, 40, 3000, 50, 2, 0),
+    "Low CGPA": (2.20, 85, 3000, 15, 3, 0),
+    "Serious disciplinary record": (3.90, 95, 5000, 80, 5, 2),
+    "No rule matches": (3.00, 50, 10000, 10, 4, 0),
 }
-INIT = dict(cgpa=3.50, co=70, income=6000, disc=0)
- 
-for k, v in INIT.items():
-    st.session_state.setdefault(k, v)
-st.session_state.setdefault("rules_text", DEFAULT_RULES_JSON)
+INPUT_KEYS = ("cgpa", "co", "income", "hours", "semester", "disc")
+for key, default in zip(INPUT_KEYS, (3.50, 70, 6000, 30, 4, 0)):
+    st.session_state.setdefault(key, default)
 st.session_state.setdefault("preset", "Custom (enter your own)")
- 
- 
+st.session_state.setdefault("rules_text", DEFAULT_RULES_JSON)
+
+
 def load_preset():
-    p = PRESETS[st.session_state["preset"]]
-    if p:
-        for k, v in p.items():
-            st.session_state[k] = v
- 
- 
+    preset = PRESETS[st.session_state["preset"]]
+    if preset is not None:
+        for key, value in zip(INPUT_KEYS, preset):
+            st.session_state[key] = value
+
+
 def reset_rules():
     st.session_state["rules_text"] = DEFAULT_RULES_JSON
- 
- 
+
+
+# Parse rules BEFORE the sidebar button, so invalid rules disable evaluation.
+try:
+    parsed_rules = json.loads(st.session_state["rules_text"])
+    rule_errors = validate_rules(parsed_rules)
+except json.JSONDecodeError as exc:
+    parsed_rules = None
+    rule_errors = [f"JSON syntax error at line {exc.lineno}, column {exc.colno}: {exc.msg}"]
+rules_ok = not rule_errors
+rules = parsed_rules if rules_ok else None
+
 st.title("🎓 Scholarship Advisory System")
-st.caption("A rule-based expert system that helps the university decide the eligibility and type of "
-           "scholarship for each applicant. Enter the applicant's facts, edit the rules if needed, and evaluate.")
- 
-# ---------------- Sidebar: facts + how to use ----------------
+st.caption("BSD3513 Introduction to Artificial Intelligence · Lab Report 3 · SD24048 WONG JIA YING")
+st.info("This is a transparent decision-support demonstration. Final scholarship decisions belong to the university committee.")
+
 with st.sidebar:
     st.header("👤 Applicant Facts")
-    st.selectbox("Load an example applicant", list(PRESETS), key="preset", on_change=load_preset,
-                 help="Quickly fill in the facts for a typical case.")
-    cgpa = st.number_input("CGPA (0.00 – 4.00)", 0.0, 4.0, step=0.01, key="cgpa", format="%.2f")
-    co = st.number_input("Co-curricular score (0 – 100)", 0, 100, step=1, key="co")
-    income = st.number_input("Family income (MYR / month)", 0, 100000, step=100, key="income")
-    disc = st.number_input("Disciplinary actions (count)", 0, 20, step=1, key="disc")
-    evaluate = st.button("Evaluate applicant", type="primary", use_container_width=True)
- 
+    st.selectbox("Load an example applicant", list(PRESETS), key="preset", on_change=load_preset)
+    cgpa = st.number_input("CGPA (0.00–4.00)", 0.0, 4.0, step=0.01, format="%.2f", key="cgpa")
+    co = st.number_input("Co-curricular score (0–100)", 0, 100, step=1, key="co")
+    income = st.number_input("Family income (MYR/month)", 0, 100000, step=100, key="income")
+    hours = st.number_input("Community service hours", 0, 10000, step=1, key="hours")
+    semester = st.number_input("Current semester", 1, 20, step=1, key="semester")
+    disc = st.number_input("Disciplinary actions", 0, 20, step=1, key="disc")
+    evaluate = st.button("Evaluate applicant", type="primary", use_container_width=True, disabled=not rules_ok)
+    if not rules_ok:
+        st.error("Fix the JSON rules in the Rules tab before evaluating.")
     st.divider()
     st.header("📖 How to use")
-    st.info(
-        "1. Pick an example or type the applicant's facts.\n"
-        "2. (Optional) edit the rules in the **Rules** tab.\n"
-        "3. Click **Evaluate applicant**.\n"
-        "4. Read the decision and see which rules fired.\n"
-        "5. Use **Batch evaluation** to score many applicants from a CSV file."
-    )
- 
+    st.write("1. Select an example or enter six applicant facts.\n\n2. Edit JSON rules if needed.\n\n3. Click **Evaluate applicant**.\n\n4. Review the decision and rule audit.\n\n5. Upload a CSV for batch evaluation.")
+
 facts = {
-    "cgpa": float(cgpa),
-    "co_curricular_score": int(co),
-    "family_income": float(income),
-    "disciplinary_actions": int(disc),
+    "cgpa": float(cgpa), "co_curricular_score": int(co),
+    "family_income": float(income), "community_service_hours": int(hours),
+    "semester": int(semester), "disciplinary_actions": int(disc)
 }
- 
-# ---------------- Parse + validate rules ----------------
-rules = DEFAULT_RULES
-rules_ok = True
-try:
-    parsed = json.loads(st.session_state["rules_text"])
-    problems = validate_rules(parsed)
-    if problems:
-        rules_ok = False
-    else:
-        rules = parsed
-except json.JSONDecodeError as e:
-    parsed, problems, rules_ok = None, [f"JSON syntax error at line {e.lineno}, column {e.colno}: {e.msg}"], False
- 
-tab_eval, tab_rules, tab_batch, tab_info = st.tabs(
-    ["✅ Evaluation", "📝 Rules (JSON editor)", "📦 Batch evaluation", "🧠 How it works"])
- 
-# ================= Tab 1: evaluation =================
+
+tab_eval, tab_rules, tab_batch, tab_info = st.tabs([
+    "✅ Evaluation", "📝 Rules (JSON editor)", "📦 Batch evaluation", "🧠 How it works"
+])
+
 with tab_eval:
     st.subheader("Applicant facts")
-    m = st.columns(4)
-    m[0].metric("CGPA", f"{facts['cgpa']:.2f}")
-    m[1].metric("Co-curricular score", facts["co_curricular_score"])
-    m[2].metric("Family income (MYR)", f"{facts['family_income']:,.0f}")
-    m[3].metric("Disciplinary actions", facts["disciplinary_actions"])
- 
-    if not rules_ok:
-        st.error("The rules in the editor have problems, so the default rules are being used.")
- 
-    if evaluate:
-        action, winner, fired = run_rules(facts, rules)
-        left, right = st.columns([1, 1])
- 
+    first = st.columns(3)
+    first[0].metric("CGPA", f"{facts['cgpa']:.2f}")
+    first[1].metric("Co-curricular score", facts["co_curricular_score"])
+    first[2].metric("Family income (MYR)", f"{facts['family_income']:,.0f}")
+    second = st.columns(3)
+    second[0].metric("Community service hours", facts["community_service_hours"])
+    second[1].metric("Current semester", facts["semester"])
+    second[2].metric("Disciplinary actions", facts["disciplinary_actions"])
+    st.caption("Community service hours and semester are recorded but not used by the five original rules.")
+    if evaluate and rules_ok:
+        action, winner, fired, audit = run_rules(facts, rules)
+        left, right = st.columns(2)
         with left:
-            st.subheader("Decision")
-            show_decision(action.get("decision", "REVIEW"), action.get("reason", "-"))
+            st.subheader("Scholarship decision")
+            decision = action["decision"]
+            icon, style, meaning = DECISIONS[decision]
+            getattr(st, style)(f"{icon} **{decision} — {meaning}**: {action['reason']}")
             if winner:
-                st.caption(f"Decided by **{winner.get('name', '(unnamed)')}** "
-                           f"(priority {winner.get('priority', 0)}). "
-                           f"{len(fired)} of {len(rules)} rules matched; the highest priority wins.")
+                st.write(f"**Winning rule:** {winner['name']} (priority {winner['priority']})")
+                st.caption(f"{len(fired)} of {len(rules)} rules matched; the highest priority wins.")
             else:
-                st.caption("No rule matched, so the system falls back to REVIEW.")
- 
+                st.caption("No rule matched; fallback recommendation is REVIEW.")
         with right:
-            st.subheader("Matched rules (by priority)")
+            st.subheader("Matched rules")
             if not fired:
                 st.info("No rules matched.")
-            for i, r in enumerate(fired, start=1):
-                crown = " 👑" if i == 1 else ""
-                with st.expander(f"{i}. {r.get('name', '(unnamed)')} — priority {r.get('priority', 0)}{crown}"):
-                    st.write(f"Action: **{r.get('action', {}).get('decision')}** — "
-                             f"{r.get('action', {}).get('reason', '')}")
-                    st.dataframe(explain_rule(facts, r), hide_index=True, use_container_width=True)
- 
+            for index, rule in enumerate(fired, 1):
+                with st.expander(f"{index}. {rule['name']} (priority {rule['priority']})" + (" 👑" if index == 1 else "")):
+                    st.write(f"**Action:** {rule['action']['decision']}")
+                    st.write(rule["action"]["reason"])
+                    st.dataframe(explain_rule(facts, rule), hide_index=True, use_container_width=True)
         st.subheader("Audit of every rule")
-        audit = []
-        for r in sorted(rules, key=lambda r: r.get("priority", 0), reverse=True):
-            checks = [check_condition(facts, c)[0] for c in r.get("conditions", [])]
-            audit.append({
-                "Rule": r.get("name", "(unnamed)"),
-                "Priority": r.get("priority", 0),
-                "Decision if matched": r.get("action", {}).get("decision"),
-                "Conditions met": f"{sum(checks)}/{len(checks)}",
-                "Status": "✅ Fired" if all(checks) else "❌ Not fired",
-            })
-        st.dataframe(pd.DataFrame(audit), hide_index=True, use_container_width=True)
-        st.caption("Rules that did not fire show how many of their conditions were still satisfied.")
- 
-        # Sensitivity: how would the decision change with a different CGPA?
-        st.subheader("What-if: how the decision changes with CGPA")
+        st.dataframe(pd.DataFrame(sorted(audit, key=lambda row: row["Priority"], reverse=True)), hide_index=True, use_container_width=True)
+        st.subheader("What-if: decision changes with CGPA")
         sweep = []
-        for g in [x / 10 for x in range(20, 41, 2)]:
-            a, w, _ = run_rules({**facts, "cgpa": g}, rules)
-            sweep.append({"CGPA": g, "Decision": a.get("decision"), "Rule": w.get("name") if w else "—"})
+        for g in [round(x / 10, 1) for x in range(20, 41, 2)]:
+            result, deciding_rule, _, _ = run_rules({**facts, "cgpa": g}, rules)
+            sweep.append({"CGPA": g, "Decision": result["decision"], "Rule": deciding_rule["name"] if deciding_rule else "Fallback"})
         st.dataframe(pd.DataFrame(sweep), hide_index=True, use_container_width=True)
-        st.caption("All other facts stay the same. Useful to see the CGPA thresholds of the rules.")
+        st.caption("All other applicant facts remain unchanged during the what-if analysis.")
     else:
-        st.info("Set the applicant facts in the sidebar and click **Evaluate applicant**.")
- 
-# ================= Tab 2: JSON editor =================
+        st.info("Enter applicant facts in the sidebar and click **Evaluate applicant**.")
+
 with tab_rules:
     st.subheader("Rules (JSON editor)")
-    st.caption("The editor starts with the rules given in the case study. A rule fires when ALL its "
-               "conditions are true; if several rules fire, the one with the highest priority decides. "
-               f"Available facts: {', '.join(FACT_FIELDS)}. Operators: {', '.join(OPS)}.")
+    st.caption("The five original case-study rules are loaded by default. Conditions within a rule use AND logic; the highest-priority matching rule wins.")
     st.text_area("Edit rules here", key="rules_text", height=520)
-    st.button("Reset rules to the case-study defaults", on_click=reset_rules)
+    st.button("Reset rules to case-study defaults", on_click=reset_rules)
     if rules_ok:
-        st.success(f"Rules are valid — {len(rules)} rules loaded.")
-        st.dataframe(pd.DataFrame([{
-            "Priority": r.get("priority", 0), "Rule": r.get("name"),
-            "Conditions": " AND ".join(f"{c[0]} {c[1]} {c[2]}" for c in r["conditions"]),
-            "Decision": r["action"]["decision"],
-        } for r in sorted(rules, key=lambda r: r.get("priority", 0), reverse=True)]),
-            hide_index=True, use_container_width=True)
+        st.success(f"Rules are valid — {len(rules)} rule(s) loaded.")
+        st.dataframe(pd.DataFrame([
+            {"Priority": r["priority"], "Rule": r["name"],
+             "Conditions": " AND ".join(f"{c[0]} {c[1]} {c[2]}" for c in r["conditions"]),
+             "Decision": r["action"]["decision"]}
+            for r in sorted(rules, key=lambda r: r["priority"], reverse=True)
+        ]), hide_index=True, use_container_width=True)
     else:
-        for p in problems:
-            st.error(p)
- 
-# ================= Tab 3: batch =================
+        for error in rule_errors:
+            st.error(error)
+
 with tab_batch:
     st.subheader("Batch evaluation")
-    st.caption("Upload a CSV with the columns " + ", ".join(f"`{f}`" for f in FACT_FIELDS) +
-               " to evaluate many applicants at once.")
+    st.caption("Upload a CSV with all six required applicant fact columns.")
     template = pd.DataFrame([
-        [3.85, 90, 6000, 0], [3.5, 70, 10000, 1], [2.8, 40, 3000, 0], [2.2, 85, 3000, 0], [3.9, 95, 5000, 2],
+        [3.85, 90, 6000, 30, 4, 0],
+        [3.50, 70, 10000, 20, 4, 1],
+        [2.80, 40, 3000, 50, 2, 0],
+        [2.20, 85, 3000, 15, 3, 0],
+        [3.90, 95, 5000, 80, 5, 2],
     ], columns=FACT_FIELDS)
-    st.download_button("Download CSV template", template.to_csv(index=False),
-                       file_name="applicants_template.csv", mime="text/csv")
-    up = st.file_uploader("Upload applicants CSV", type="csv")
-    if up is not None:
-        try:
-            df = pd.read_csv(io.BytesIO(up.getvalue()))
-            missing = [f for f in FACT_FIELDS if f not in df.columns]
-            if missing:
-                st.error(f"Missing columns: {', '.join(missing)}")
-            else:
-                out = []
-                for _, row in df.iterrows():
-                    a, w, _ = run_rules({f: row[f] for f in FACT_FIELDS}, rules)
-                    out.append({"Decision": a.get("decision"), "Deciding rule": w.get("name") if w else "—",
-                                "Reason": a.get("reason")})
-                result = pd.concat([df, pd.DataFrame(out)], axis=1)
-                counts = result["Decision"].value_counts()
-                c = st.columns(4)
-                for col, d in zip(c, DECISION_STYLE):
-                    col.metric(f"{DECISION_STYLE[d][0]} {d.replace('_', ' ').title()}", int(counts.get(d, 0)))
-                st.dataframe(result, hide_index=True, use_container_width=True)
-                st.bar_chart(counts)
-                st.download_button("Download results", result.to_csv(index=False),
-                                   file_name="scholarship_results.csv", mime="text/csv")
-        except Exception as e:
-            st.error(f"Could not read the file: {e}")
- 
-# ================= Tab 4: explanation =================
+    st.download_button("Download CSV template", template.to_csv(index=False), "applicants_template.csv", "text/csv")
+    uploaded = st.file_uploader("Upload applicants CSV", type="csv")
+    if uploaded is not None:
+        if not rules_ok:
+            st.error("Correct the JSON rules before batch evaluation.")
+        else:
+            try:
+                df = pd.read_csv(io.BytesIO(uploaded.getvalue()))
+                clean, batch_errors = validate_batch(df)
+                if batch_errors:
+                    for error in batch_errors:
+                        st.error(error)
+                else:
+                    output = []
+                    for _, row in clean.iterrows():
+                        applicant = {field: row[field] for field in FACT_FIELDS}
+                        action, winner, _, _ = run_rules(applicant, rules)
+                        output.append({
+                            "Decision": action["decision"],
+                            "Deciding rule": winner["name"] if winner else "Fallback",
+                            "Reason": action["reason"]
+                        })
+                    result = pd.concat([clean.reset_index(drop=True), pd.DataFrame(output)], axis=1)
+                    counts = result["Decision"].value_counts()
+                    columns = st.columns(4)
+                    for col, decision in zip(columns, DECISIONS):
+                        col.metric(f"{DECISIONS[decision][0]} {decision}", int(counts.get(decision, 0)))
+                    st.dataframe(result, hide_index=True, use_container_width=True)
+                    st.bar_chart(counts.rename_axis("Decision").rename("Applicants"))
+                    st.download_button("Download results", result.to_csv(index=False), "scholarship_results.csv", "text/csv")
+            except (pd.errors.ParserError, UnicodeError, ValueError, OSError) as exc:
+                st.error(f"Could not read the CSV: {exc}")
+
 with tab_info:
     st.subheader("How the rule-based system works")
     st.markdown("""
-1. **Facts:** the applicant's CGPA, co-curricular score, family income and number of disciplinary actions.
-2. **Rules (knowledge base):** each rule has *conditions* (IF part), a *priority* and an *action* (THEN part).
-3. **Matching:** a rule fires only when **all** its conditions are true (AND).
-4. **Conflict resolution:** if several rules fire, the rule with the **highest priority** decides the outcome.
-5. **Default:** if no rule fires, the applicant goes to **REVIEW**.
+1. **Facts:** collect six applicant attributes.
+2. **Knowledge base:** five JSON rules contain conditions, priorities and actions.
+3. **Matching:** all conditions within a rule must be true (AND).
+4. **Conflict resolution:** the highest-priority matching rule wins; equal priorities retain JSON order.
+5. **Decision:** recommend AWARD_FULL, AWARD_PARTIAL, REVIEW or REJECT.
+6. **Fallback:** if no rule matches, recommend REVIEW.
+7. **Explanation:** show matched rules and a condition-by-condition audit.
 """)
-    st.subheader("Decisions")
-    st.table(pd.DataFrame([
-        ["AWARD_FULL", "Full scholarship"],
-        ["AWARD_PARTIAL", "Partial scholarship"],
-        ["REVIEW", "Needs manual review by the committee"],
-        ["REJECT", "Not eligible"],
-    ], columns=["Decision", "Meaning"]).set_index("Decision"))
-    st.subheader("Why priorities matter")
-    st.markdown("""
-The rejection rules have high priority (*Low CGPA* = 95, *Serious disciplinary record* = 90), so a very
-strong profile in one area cannot override a disqualifying problem in another. For example, an applicant
-with a CGPA of 3.9 but 2 disciplinary actions is rejected.
-""")
-st.caption("Demo for a university lab exercise. Final scholarship decisions rest with the committee.")
+    st.table(pd.DataFrame([{"Decision": k, "Meaning": v[2]} for k, v in DECISIONS.items()]).set_index("Decision"))
+    st.warning("Rule priorities are applied exactly as supplied in the lab. Editing rules may change the recommendation.")
+
+st.caption("University lab demonstration only. Final scholarship decisions rest with the scholarship committee.")
