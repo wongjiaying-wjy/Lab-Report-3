@@ -1,4 +1,4 @@
-# 🎓 Scholarship Advisory System: Rule-Based Decision Support
+[# 🎓 Scholarship Advisory System: Rule-Based Decision Support
 
 **BSD3513 Introduction to Artificial Intelligence · Lab Report 3**
 
@@ -139,3 +139,4 @@ Python · Streamlit · pandas · JSON
 The rule-based inference engine evaluates the conditions of each rule against the applicant's facts. If there are R rules and each rule contains at most C conditions, rule matching requires **O(R × C)** operations. Sorting the matched rules adds at most **O(R log R)** time.
 
 The five original rules contain a total of 13 conditions. The system is deterministic: the same applicant facts and rule configuration produce the same recommendation.
+](https://lab-report-3-4tzykpqy2deq68nppsiztr.streamlit.app/)
