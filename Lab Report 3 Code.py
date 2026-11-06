@@ -114,11 +114,9 @@ def validate_rules(rules: Any) -> list[str]:
                 errors.append(f"{label}: reason must be non-empty text.")
     return errors
 
-
 def check_condition(facts: dict, cond: list) -> bool:
     field, op, threshold = cond
     return bool(OPS[op](facts[field], threshold))
-
 
 def run_rules(facts: dict, rules: list):
     """Return action, winning rule, matching rules, and complete audit."""
@@ -141,7 +139,6 @@ def run_rules(facts: dict, rules: list):
         return fired[0]["action"], fired[0], fired, audit
     return {"decision": "REVIEW", "reason": "No rule matched; refer to the scholarship committee."}, None, [], audit
 
-
 def explain_rule(facts: dict, rule: dict) -> pd.DataFrame:
     return pd.DataFrame([
         {
@@ -151,8 +148,6 @@ def explain_rule(facts: dict, rule: dict) -> pd.DataFrame:
         }
         for field, op, value in rule["conditions"]
     ])
-
-
 
 PRESETS = {
     "Custom (enter your own)": None,
@@ -169,17 +164,14 @@ for key, default in zip(INPUT_KEYS, (3.50, 70, 6000, 30, 4, 0)):
 st.session_state.setdefault("preset", "Custom (enter your own)")
 st.session_state.setdefault("rules_text", DEFAULT_RULES_JSON)
 
-
 def load_preset():
     preset = PRESETS[st.session_state["preset"]]
     if preset is not None:
         for key, value in zip(INPUT_KEYS, preset):
             st.session_state[key] = value
 
-
 def reset_rules():
     st.session_state["rules_text"] = DEFAULT_RULES_JSON
-
 
 # Parse rules BEFORE the sidebar button, so invalid rules disable evaluation.
 try:
@@ -193,7 +185,14 @@ rules = parsed_rules if rules_ok else None
 
 st.title("🎓 Scholarship Advisory System")
 st.caption("BSD3513 Introduction to Artificial Intelligence · Lab Report 3 · SD24048 WONG JIA YING")
-st.info("This is a transparent decision-support demonstration. Final scholarship decisions belong to the university committee.")
+st.info(
+    "📖 **How to Use**\n\n"
+    "1. Select an example applicant or enter the six applicant facts in the sidebar.\n"
+    "2. Optionally edit the scholarship rules in the **Rules (JSON editor)** tab.\n"
+    "3. Click **Evaluate applicant**.\n"
+    "4. Review the scholarship decision, matched rules, and explanations.\n"
+    "5. Explore the rule audit and CGPA what-if analysis."
+)
 
 with st.sidebar:
     st.header("👤 Applicant Facts")
@@ -207,9 +206,6 @@ with st.sidebar:
     evaluate = st.button("Evaluate applicant", type="primary", use_container_width=True, disabled=not rules_ok)
     if not rules_ok:
         st.error("Fix the JSON rules in the Rules tab before evaluating.")
-    st.divider()
-    st.header("📖 How to use")
-    st.write("1. Select an example or enter six applicant facts.\n\n2. Edit JSON rules if needed.\n\n3. Click **Evaluate applicant**.\n\n4. Review the decision and rule audit.")
 
 facts = {
     "cgpa": float(cgpa), "co_curricular_score": int(co),
@@ -292,6 +288,5 @@ with tab_rules:
     else:
         for error in rule_errors:
             st.error(error)
-
 
 st.caption("University lab demonstration only. Final scholarship decisions rest with the scholarship committee.")
