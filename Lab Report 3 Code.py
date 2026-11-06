@@ -1,4 +1,3 @@
-import io
 import json
 import math
 import operator
@@ -54,14 +53,6 @@ FACT_FIELDS = [
     "cgpa", "co_curricular_score", "family_income",
     "community_service_hours", "semester", "disciplinary_actions"
 ]
-INTEGER_FIELDS = {
-    "co_curricular_score", "community_service_hours", "semester", "disciplinary_actions"
-}
-LIMITS = {
-    "cgpa": (0, 4), "co_curricular_score": (0, 100),
-    "family_income": (0, 100000), "community_service_hours": (0, 10000),
-    "semester": (1, 20), "disciplinary_actions": (0, 20)
-}
 DECISIONS = {
     "AWARD_FULL": ("🏆", "success", "Full scholarship"),
     "AWARD_PARTIAL": ("🎓", "info", "Partial scholarship"),
@@ -163,26 +154,6 @@ def explain_rule(facts: dict, rule: dict) -> pd.DataFrame:
     ])
 
 
-def validate_batch(df: pd.DataFrame) -> tuple[pd.DataFrame, list[str]]:
-    """Check required columns, missing values, ranges, and integer counts."""
-    missing = [field for field in FACT_FIELDS if field not in df.columns]
-    if missing:
-        return df, ["Missing columns: " + ", ".join(missing)]
-    if df.empty:
-        return df, ["CSV must contain at least one applicant."]
-    result = df.copy()
-    errors = []
-    for field in FACT_FIELDS:
-        result[field] = pd.to_numeric(result[field], errors="coerce")
-        minimum, maximum = LIMITS[field]
-        invalid = result[field].isna() | ~result[field].map(math.isfinite)
-        invalid |= (result[field] < minimum) | (result[field] > maximum)
-        if field in INTEGER_FIELDS:
-            invalid |= result[field].notna() & (result[field] % 1 != 0)
-        if invalid.any():
-            errors.append(f"{field}: invalid value(s) in CSV row(s) " + ", ".join(str(i + 2) for i in result.index[invalid]))
-    return result, errors
-
 
 PRESETS = {
     "Custom (enter your own)": None,
@@ -239,7 +210,7 @@ with st.sidebar:
         st.error("Fix the JSON rules in the Rules tab before evaluating.")
     st.divider()
     st.header("📖 How to use")
-    st.write("1. Select an example or enter six applicant facts.\n\n2. Edit JSON rules if needed.\n\n3. Click **Evaluate applicant**.\n\n4. Review the decision and rule audit.\n\n5. Upload a CSV for batch evaluation.")
+    st.write("1. Select an example or enter six applicant facts.\n\n2. Edit JSON rules if needed.\n\n3. Click **Evaluate applicant**.\n\n4. Review the decision and rule audit.")
 
 facts = {
     "cgpa": float(cgpa), "co_curricular_score": int(co),
@@ -247,11 +218,21 @@ facts = {
     "semester": int(semester), "disciplinary_actions": int(disc)
 }
 
-tab_eval, tab_rules, tab_batch, tab_info = st.tabs([
-    "✅ Evaluation", "📝 Rules (JSON editor)", "📦 Batch evaluation", "🧠 How it works"
+tab_eval, tab_rules = st.tabs([
+    "✅ Evaluation", "📝 Rules (JSON editor)"
 ])
 
 with tab_eval:
+    with st.expander("💡 How it works", expanded=False):
+        st.markdown("""
+1. **Applicant facts:** Enter the six applicant details in the sidebar.
+2. **Knowledge base:** Five JSON IF–THEN rules define conditions, priorities and actions.
+3. **Rule matching:** All conditions in a rule must be true (AND).
+4. **Conflict resolution:** The highest-priority matching rule wins; ties keep JSON order.
+5. **Decision:** The system recommends AWARD_FULL, AWARD_PARTIAL, REVIEW or REJECT.
+6. **Fallback:** If no rule matches, recommend REVIEW.
+7. **Explanation:** Review matched rules, the condition audit and CGPA what-if results.
+        """)
     st.subheader("Applicant facts")
     first = st.columns(3)
     first[0].metric("CGPA", f"{facts['cgpa']:.2f}")
@@ -313,61 +294,5 @@ with tab_rules:
         for error in rule_errors:
             st.error(error)
 
-with tab_batch:
-    st.subheader("Batch evaluation")
-    st.caption("Upload a CSV with all six required applicant fact columns.")
-    template = pd.DataFrame([
-        [3.85, 90, 6000, 30, 4, 0],
-        [3.50, 70, 10000, 20, 4, 1],
-        [2.80, 40, 3000, 50, 2, 0],
-        [2.20, 85, 3000, 15, 3, 0],
-        [3.90, 95, 5000, 80, 5, 2],
-    ], columns=FACT_FIELDS)
-    st.download_button("Download CSV template", template.to_csv(index=False), "applicants_template.csv", "text/csv")
-    uploaded = st.file_uploader("Upload applicants CSV", type="csv")
-    if uploaded is not None:
-        if not rules_ok:
-            st.error("Correct the JSON rules before batch evaluation.")
-        else:
-            try:
-                df = pd.read_csv(io.BytesIO(uploaded.getvalue()))
-                clean, batch_errors = validate_batch(df)
-                if batch_errors:
-                    for error in batch_errors:
-                        st.error(error)
-                else:
-                    output = []
-                    for _, row in clean.iterrows():
-                        applicant = {field: row[field] for field in FACT_FIELDS}
-                        action, winner, _, _ = run_rules(applicant, rules)
-                        output.append({
-                            "Decision": action["decision"],
-                            "Deciding rule": winner["name"] if winner else "Fallback",
-                            "Reason": action["reason"]
-                        })
-                    result = pd.concat([clean.reset_index(drop=True), pd.DataFrame(output)], axis=1)
-                    counts = result["Decision"].value_counts()
-                    columns = st.columns(4)
-                    for col, decision in zip(columns, DECISIONS):
-                        col.metric(f"{DECISIONS[decision][0]} {decision}", int(counts.get(decision, 0)))
-                    st.dataframe(result, hide_index=True, use_container_width=True)
-                    st.bar_chart(counts.rename_axis("Decision").rename("Applicants"))
-                    st.download_button("Download results", result.to_csv(index=False), "scholarship_results.csv", "text/csv")
-            except (pd.errors.ParserError, UnicodeError, ValueError, OSError) as exc:
-                st.error(f"Could not read the CSV: {exc}")
-
-with tab_info:
-    st.subheader("How the rule-based system works")
-    st.markdown("""
-1. **Facts:** collect six applicant attributes.
-2. **Knowledge base:** five JSON rules contain conditions, priorities and actions.
-3. **Matching:** all conditions within a rule must be true (AND).
-4. **Conflict resolution:** the highest-priority matching rule wins; equal priorities retain JSON order.
-5. **Decision:** recommend AWARD_FULL, AWARD_PARTIAL, REVIEW or REJECT.
-6. **Fallback:** if no rule matches, recommend REVIEW.
-7. **Explanation:** show matched rules and a condition-by-condition audit.
-""")
-    st.table(pd.DataFrame([{"Decision": k, "Meaning": v[2]} for k, v in DECISIONS.items()]).set_index("Decision"))
-    st.warning("Rule priorities are applied exactly as supplied in the lab. Editing rules may change the recommendation.")
 
 st.caption("University lab demonstration only. Final scholarship decisions rest with the scholarship committee.")
