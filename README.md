@@ -8,8 +8,6 @@
 
 💻 **Source Code:** [https://github.com/wongjiaying-wjy/Lab-Report-3](https://github.com/wongjiaying-wjy/Lab-Report-3)
 
-![App overview](image/app_overview.png)
-
 ## About
 
 An interactive Streamlit application that uses a rule-based expert system to evaluate scholarship eligibility based on predefined conditions from the case study. The system considers six applicant facts: CGPA, co-curricular involvement score, monthly family income, community service hours, current semester, and disciplinary actions.
