@@ -79,15 +79,8 @@ Users can modify the rule configuration without changing the Python source code.
 
 A **Reset rules to case-study defaults** button restores the original rules.
 
-![JSON rule editor](image/json_editor.png)
-
-### 6. How It Works
-
-The **How it works** dropdown explains the rule-based inference process, including fact collection, IF–THEN rule matching, priority-based conflict resolution, scholarship decisions, and default handling.
-
-The explanation is collapsed by default to keep the interface clean.
-
-![How it works](image/how_it_works.png)
+![JSON rule editor](image/rules_1.png)
+![JSON rule editor](image/rules_2.png)
 
 
 ## How to Run
