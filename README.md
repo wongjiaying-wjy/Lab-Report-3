@@ -44,13 +44,13 @@ Community service hours and current semester are collected but do not affect sch
 
 ## Application Features
 
+![Applicant facts](image/main_page.png)
+
 ### 1. Applicant Facts
 
 Enter the applicant's six facts in the sidebar: CGPA, monthly family income, co-curricular score, community service hours, current semester, and disciplinary actions. You can also select an example applicant to automatically fill in the values. The applicant information is displayed as summary cards in the Evaluation tab.
 
 Click **Evaluate applicant** to run the scholarship rules.
-
-![Applicant facts](image/app_overview.png)
 
 ### 2. Scholarship Decision and Matched Rules
 
@@ -58,15 +58,12 @@ The system displays the scholarship recommendation in a colour-coded banner: gre
 
 The result includes the reason, winning rule, and its priority. All matching rules are displayed in priority order. If multiple rules match, the rule with the highest priority determines the recommendation.
 
-![Scholarship decision](image/scholarship_results.png)
-
+![Rule audit](image/scholarship_decision.png)
 ### 3. Rule Audit and Explanation
 
 The rule audit table shows the evaluation of all five scholarship rules. Each rule is marked as **Fired** or **Not fired**, together with its priority and the number of conditions satisfied.
 
 For matched rules, you can expand the rule to view each condition, the applicant's actual value, and whether the condition passed. This makes the scholarship recommendation transparent and explainable.
-
-![Rule audit](image/rule_audit.png)
 
 ### 4. CGPA What-if Analysis
 
@@ -74,7 +71,7 @@ The what-if analysis evaluates how the scholarship recommendation changes when t
 
 The results are displayed in a table showing different CGPA values, scholarship decisions, and the corresponding deciding rules.
 
-![CGPA what-if analysis](image/what_if_analysis.png)
+![CGPA what-if analysis](image/what_if.png)
 
 ### 5. Editable Scholarship Rules
 
