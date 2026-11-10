@@ -1,4 +1,4 @@
-[# 🎓 Scholarship Advisory System: Rule-Based Decision Support
+🎓 Scholarship Advisory System: Rule-Based Decision Support
 
 **BSD3513 Introduction to Artificial Intelligence · Lab Report 3**
 
